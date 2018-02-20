@@ -115,6 +115,9 @@ module.exports = {
   hexToUtf8(text) {
     return web3.toAscii(text).replace(/\u0000/g, "");
   },
+  currentBlock() {
+    return web3.eth.blockNumber;
+  },
   currentBlockTime() {
     const p = new Promise((resolve, reject) => {
       web3.eth.getBlock("latest", (err, res) => {
@@ -150,5 +153,71 @@ module.exports = {
         id: 0
       });
     }
+  },
+  forwardToBlock(blockNumber) {
+    // Check we are behind the given blockNumber
+    let currentBlock = web3.eth.blockNumber;
+    assert.isTrue(currentBlock <= blockNumber);
+    while (currentBlock < blockNumber) {
+      web3.currentProvider.send({
+        jsonrpc: "2.0",
+        method: "evm_mine"
+      });
+      currentBlock = web3.eth.blockNumber;
+    }
+  },
+  mineTransaction() {
+    const p = new Promise((resolve, reject) => {
+      web3.currentProvider.send(
+        {
+          jsonrpc: "2.0",
+          method: "evm_mine"
+        },
+        (err, res) => {
+          if (err) {
+            return reject(err);
+          }
+          return resolve(res.timestamp);
+        }
+      );
+    });
+    return p;
+  },
+  startMining() {
+    const p = new Promise((resolve, reject) => {
+      web3.currentProvider.send(
+        {
+          jsonrpc: "2.0",
+          method: "miner_start",
+          params: [1],
+          id: new Date().getTime()
+        },
+        (err, res) => {
+          if (err) {
+            return reject(err);
+          }
+          return resolve(res.timestamp);
+        }
+      );
+    });
+    return p;
+  },
+  stopMining() {
+    const p = new Promise((resolve, reject) => {
+      web3.currentProvider.send(
+        {
+          jsonrpc: "2.0",
+          method: "miner_stop",
+          id: new Date().getTime()
+        },
+        (err, res) => {
+          if (err) {
+            return reject(err);
+          }
+          return resolve(res.timestamp);
+        }
+      );
+    });
+    return p;
   }
 };

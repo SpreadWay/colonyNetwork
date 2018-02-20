@@ -21,11 +21,11 @@ contract("ColonyNetworkStaking", accounts => {
   before(async () => {
     const etherRouter = await EtherRouter.deployed();
     colonyNetwork = await IColonyNetwork.at(etherRouter.address);
-
     const commonColonyAddress = await colonyNetwork.getColony("Common Colony");
     commonColony = IColony.at(commonColonyAddress);
-    const clnyAddress = await commonColony.getToken.call();
-    clny = Token.at(clnyAddress);
+    clny = await Token.new("Colony Network Token", "CLNY", 18);
+    commonColony.setToken(clny.address);
+    clny.setOwner(commonColony.address);
     await colonyNetwork.startNextCycle();
   });
 
@@ -131,7 +131,7 @@ contract("ColonyNetworkStaking", accounts => {
 
     it("should not allow someone to submit a new reputation hash if they are not staking", async () => {
       const addr = await colonyNetwork.getReputationMiningCycle.call();
-      await testHelper.forwardTime(3600);
+      await testHelper.forwardTime(3600, this);
       const repCycle = ReputationMiningCycle.at(addr);
       await testHelper.checkErrorRevert(repCycle.submitNewHash("0x12345678", 10, 0));
       const nSubmittedHashes = await repCycle.nSubmittedHashes.call();
@@ -144,7 +144,7 @@ contract("ColonyNetworkStaking", accounts => {
       await colonyNetwork.deposit("1000000000000000000");
 
       const addr = await colonyNetwork.getReputationMiningCycle.call();
-      await testHelper.forwardTime(3600);
+      await testHelper.forwardTime(3600, this);
       const repCycle = ReputationMiningCycle.at(addr);
       await repCycle.submitNewHash("0x12345678", 10, 10);
       let stakedBalance = await colonyNetwork.getStakedBalance.call(MAIN_ACCOUNT);
