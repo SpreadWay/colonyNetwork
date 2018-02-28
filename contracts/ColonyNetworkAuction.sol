@@ -26,18 +26,15 @@ import "./IColony.sol";
 
 
 contract ColonyNetworkAuction is ColonyNetworkStorage {
-  event AuctionCreated(address auction, address token, uint256 quantity, uint256 startPrice);
+  event AuctionCreated(address auction, address token, uint256 quantity);
 
-  function startTokenAuction(
-    address _token,
-    uint256 _quantity,
-    uint256 _startPrice)
-    public 
-    {
-    ERC20Extended clny = ERC20Extended(IColony(_colonies["Common Colony"]).getToken());
-    DutchAuction auction = new DutchAuction(address(clny), _token, _quantity, _startPrice);
-    ERC20Extended(_token).transfer(auction, _quantity);
-    AuctionCreated(address(auction), _token, _quantity, _startPrice);
+  function startTokenAuction(address _token) public {
+    address commonColony = _colonies["Common Colony"];
+    address clny = IColony(commonColony).getToken();
+    DutchAuction auction = new DutchAuction(clny, _token);
+    uint availableTokens = ERC20Extended(_token).balanceOf(this);
+    ERC20Extended(_token).transfer(auction, availableTokens);
+    AuctionCreated(address(auction), _token, availableTokens);
   }
 }
 
@@ -49,19 +46,18 @@ contract DutchAuction is DSMath {
   ERC20Extended public clnyToken;
   ERC20Extended public token;
 
-  // Starting price in CLNY wei per Token wei
-  uint public startPrice;
+  uint public constant START_PRICE = 10 ** 18;
+  uint public constant TOKEN_DECIMALS = 10 ** 18;
   uint public startBlock;
   uint public endBlock;
   // Keep track of all CLNY wei received
   uint public receivedTotal;
-  // Keep track of cumulative CLNY funds for which the tokens have been claimed
-  uint public tokensClaimed;
+  uint public bidCount;
+  uint public claimCount;
   // Total number of auctioned tokens
   uint public quantity;
-  // CLNY Wei per Token wei
+  // CLNY Wei per Token
   uint public finalPrice;
-  uint public constant MULTIPLIER = 10 ** 18;
   bool public finalized;
   
   mapping (address => uint256) public bids;
@@ -87,7 +83,7 @@ contract DutchAuction is DSMath {
   }
 
   modifier allBidsClaimed  {
-    require(tokensClaimed == receivedTotal);
+    require(claimCount == bidCount);
     _;
   }
 
@@ -96,22 +92,13 @@ contract DutchAuction is DSMath {
   event AuctionClaim(address indexed _recipient, uint _sentAmount);
   event AuctionFinalized(uint _finalPrice);
 
-  function DutchAuction(
-    address _clnyToken,
-    address _token,
-    uint256 _quantity,
-    uint _startPrice) 
-    public 
-    {
+  function DutchAuction(address _clnyToken, address _token) public {
     colonyNetwork = msg.sender;
     require(_clnyToken != 0x0 && _token != 0x0);
     clnyToken = ERC20Extended(_clnyToken);
     token = ERC20Extended(_token);
     
-    require(_startPrice > 0);
-    startPrice = _startPrice;
-    require(_quantity > 0);
-    quantity = _quantity;
+    quantity = token.balanceOf(this);
     startBlock = block.number;
     AuctionStarted(startBlock);
   }
@@ -137,6 +124,7 @@ contract DutchAuction is DSMath {
     clnyToken.transferFrom(msg.sender, this, amount);
     bids[msg.sender] = add(bids[msg.sender], amount);
     receivedTotal = add(receivedTotal, amount);
+    bidCount += 1;
     
     AuctionBid(msg.sender, amount, sub(remainingToEndAuction, amount));
   }
@@ -148,7 +136,7 @@ contract DutchAuction is DSMath {
   {
     // Give the network all CLNY sent to the auction in bids
     clnyToken.transfer(colonyNetwork, receivedTotal);
-    finalPrice = mul(receivedTotal, MULTIPLIER) / quantity;
+    finalPrice = add((mul(receivedTotal, TOKEN_DECIMALS) / quantity), 1);
     finalized = true;
     AuctionFinalized(finalPrice);
   }
@@ -158,44 +146,38 @@ contract DutchAuction is DSMath {
   returns (bool)
   {
     uint amount = bids[msg.sender];
-    uint tokens = mul(amount, MULTIPLIER) / finalPrice;
-
-    // Due to finalPrice floor rounding, the number of assigned tokens may be higher
-    // than expected. Therefore, the number of remaining unassigned auction tokens
-    // may be smaller than the number of tokens needed for the last claimTokens call
-    uint auctionTokenBalance = token.balanceOf(address(this));
-    if (tokens > auctionTokenBalance) {
-      tokens = auctionTokenBalance;
-    }
-
-    // Update the total amount of funds for which tokens have been claimed
-    tokensClaimed += amount;
-
+    uint tokens = mul(amount, TOKEN_DECIMALS) / finalPrice;
+    claimCount += 1;
+    
     // Set receiver bid to 0 before transferring the tokens
     bids[msg.sender] = 0;
+    uint beforeClaimBalance = token.balanceOf(msg.sender);
     require(token.transfer(msg.sender, tokens));
-    AuctionClaim(msg.sender, tokens);
-
-    assert(token.balanceOf(msg.sender) >= tokens);
+    assert(token.balanceOf(msg.sender) == add(beforeClaimBalance, tokens));
     assert(bids[msg.sender] == 0);
+
+    AuctionClaim(msg.sender, tokens);
     return true;
   }
 
   function totalToEndAuction() public view returns (uint) {
-    return (quantity * price()) / MULTIPLIER;
+    return mul(quantity, price());
   }
 
   // Get the current Token price in CLNY wei
   // If the end block is set, i.e. auction is closed for bids, use the endBlock in calculation
   function price() public view returns (uint) {
     uint lastBlock = endBlock == 0 ? block.number : endBlock;
-    return startPrice * MULTIPLIER / (1 + lastBlock - startBlock);
+    uint duration = sub(add(1, lastBlock), startBlock);
+    return START_PRICE / duration;
   }
 
   function close() public
   auctionFinalized
   allBidsClaimed
   {
+    uint auctionTokenBalance = token.balanceOf(this);
+    token.transfer(colonyNetwork, auctionTokenBalance);
     assert(clnyToken.balanceOf(this) == 0);
     assert(token.balanceOf(this) == 0);
     selfdestruct(colonyNetwork);

@@ -116,7 +116,15 @@ module.exports = {
     return web3.toAscii(text).replace(/\u0000/g, "");
   },
   currentBlock() {
-    return web3.eth.blockNumber;
+    const p = new Promise((resolve, reject) => {
+      web3.eth.blockNumber((err, res) => {
+        if (err) {
+          return reject(err);
+        }
+        return resolve(res.timestamp);
+      });
+    });
+    return p;
   },
   currentBlockTime() {
     const p = new Promise((resolve, reject) => {
@@ -154,19 +162,16 @@ module.exports = {
       });
     }
   },
-  forwardToBlock(blockNumber) {
+  async forwardToBlock(blockNumber) {
     // Check we are behind the given blockNumber
-    let currentBlock = web3.eth.blockNumber;
+    let currentBlock = await this.currentBlock();
     assert.isTrue(currentBlock <= blockNumber);
     while (currentBlock < blockNumber) {
-      web3.currentProvider.send({
-        jsonrpc: "2.0",
-        method: "evm_mine"
-      });
-      currentBlock = web3.eth.blockNumber;
+      await this.mineBlock(); // eslint-disable-line no-await-in-loop
+      currentBlock = await this.currentBlock(); // eslint-disable-line no-await-in-loop
     }
   },
-  mineTransaction() {
+  async mineBlock() {
     const p = new Promise((resolve, reject) => {
       web3.currentProvider.send(
         {
@@ -183,7 +188,7 @@ module.exports = {
     });
     return p;
   },
-  startMining() {
+  async startMining() {
     const p = new Promise((resolve, reject) => {
       web3.currentProvider.send(
         {
@@ -202,7 +207,7 @@ module.exports = {
     });
     return p;
   },
-  stopMining() {
+  async stopMining() {
     const p = new Promise((resolve, reject) => {
       web3.currentProvider.send(
         {

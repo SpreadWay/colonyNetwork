@@ -19,7 +19,6 @@ contract("ColonyNetworkAuction", accounts => {
   let colonyNetwork;
   let tokenAuction;
   let startBlock;
-  const startPrice = 100;
   const quantity = 3e18;
   let clny;
   let token;
@@ -41,7 +40,7 @@ contract("ColonyNetworkAuction", accounts => {
     token = await Token.new(...args);
     await token.mint(quantity);
     await token.transfer(colonyNetwork.address, quantity);
-    const { tx, logs } = await colonyNetwork.startTokenAuction(token.address, quantity, startPrice);
+    const { tx, logs } = await colonyNetwork.startTokenAuction(token.address);
     const auctionAddress = logs[0].args.auction;
     tokenAuction = await DutchAuction.at(auctionAddress);
     const receipt = await testHelper.web3GetTransactionReceipt(tx);
@@ -56,8 +55,8 @@ contract("ColonyNetworkAuction", accounts => {
       assert.equal(tokenAddress, token.address);
       const quantityNow = await tokenAuction.quantity.call();
       assert.equal(quantityNow.toString(), "3000000000000000000");
-      const startPriceNow = await tokenAuction.startPrice.call();
-      assert.equal(startPrice, startPriceNow.toString());
+      const startPrice = await tokenAuction.START_PRICE.call();
+      assert.equal(1e18, startPrice.toString());
     });
 
     it("should initialise auction with correct start block", async () => {
@@ -66,15 +65,11 @@ contract("ColonyNetworkAuction", accounts => {
     });
 
     it("should not be able to initialise auction with 0x0 token", async () => {
-      await testHelper.checkError(colonyNetwork.startTokenAuction("0x0", quantity, startPrice));
+      await testHelper.checkError(colonyNetwork.startTokenAuction("0x0"));
     });
 
-    it("should not be able to initialise auction with zero quantity", async () => {
-      await testHelper.checkError(colonyNetwork.startTokenAuction(token.address, 0, startPrice));
-    });
-
-    it("should not be able to initialise auction with zero start price", async () => {
-      await testHelper.checkError(colonyNetwork.startTokenAuction(token.address, quantity, 0));
+    it.skip("should not be able to initialise auction with zero quantity", async () => {
+      await testHelper.checkError(colonyNetwork.startTokenAuction(token.address));
     });
   });
 
@@ -185,7 +180,7 @@ contract("ColonyNetworkAuction", accounts => {
       const elapsedBlocks = endBlock - startBlock;
       const endPrice = new BN(10)
         .pow(new BN(18))
-        .muln(startPrice)
+        .muln(1e18)
         .divn(elapsedBlocks);
       const finalPrice = await tokenAuction.finalPrice.call();
       assert.equal(endPrice.toString(), finalPrice.toString());
